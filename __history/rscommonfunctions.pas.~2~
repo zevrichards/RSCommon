@@ -5,7 +5,7 @@ interface
 uses
   Windows, Classes, Dialogs, ShellApi, Registry, SysUtils, StrUtils, Launch, Forms, StdCtrls, Controls, ShlObj, DateUtils,
   System.IOUtils, System.Generics.Collections, Vcl.Graphics, Vcl.ExtCtrls,
-  system.Math, system.UITypes;
+  system.Math;
 
 function CheckforAgnMrgrInstall(SimVersion, AddonXML, LWCFGPath: string; out AGNMrgrInstallLocation: string): Int64;
 function CheckforSODEInstall(SimVersion, LWCFGPath: string): Int64;
@@ -279,7 +279,7 @@ begin
 end;
 
 function Edit_LWcfg(const {remind,} checked: boolean; sim, simpath, LWCFGpath: string{; out remindagain: boolean}): boolean;
-var LWcfg, TrafficHigh, TrafficLow, log: string;
+var LWcfg, TrafficHigh, TrafficLow: string;
   SL: TStringList;
   ToSPB : boolean;
 begin
@@ -321,7 +321,7 @@ begin
         If FileExists(LWCFGPath+'LWcfg.spb')=true then
         begin
          ToSPB := true;  //we're handling an SPB file and will need to convert it back later.
-         If RunProgramWaiting('spb2xml.exe', '', ['-s', '"'+simpath+'propdefs"', '"'+LWCFGpath+'LWcfg.spb"'], log)<>-1 then   //convert
+         If RunProgramWaiting('spb2xml.exe', '', ['-s', '"'+simpath+'propdefs"', '"'+LWCFGpath+'LWcfg.spb"'])<>-1 then   //convert
          begin
             If FileExists(LWCFGPath+'LWcfg.xml') then
             begin
@@ -350,7 +350,7 @@ begin
   //try to convert the xml file back to spb and delete the xml if it was originally in spb format.
   If ToSPB then
   begin
-    If RunProgramWaiting('simpropcompiler.exe', '', ['2spb', '-symbols', '"'+SimPath+'propdefs\*.xml"', '"'+LWcfgPath+'LWcfg.xml"', '"'+LWcfgPath+'LWcfg.spb"'], log)<>-1 then
+    If RunProgramWaiting('simpropcompiler.exe', '', ['2spb', '-symbols', '"'+SimPath+'propdefs\*.xml"', '"'+LWcfgPath+'LWcfg.xml"', '"'+LWcfgPath+'LWcfg.spb"'])<>-1 then
     begin
      If FileExists(LWCFGPath+'LWcfg.spb') then
         DeleteFile (LWCFGPath+'LWcfg.xml');
@@ -540,6 +540,7 @@ function GetSimPath(simkey64,simkey32: string): string;
 var myReg : TRegistry;
     SL: TStringList;
     aFileOpenDialog : TFileOpenDialog;
+    s: string;
 
 begin
   result := '';

@@ -5,7 +5,7 @@ interface
 uses
   Windows, Classes, Dialogs, ShellApi, Registry, SysUtils, StrUtils, Launch, Forms, StdCtrls, Controls, ShlObj, DateUtils,
   System.IOUtils, System.Generics.Collections, Vcl.Graphics, Vcl.ExtCtrls,
-  system.Math, system.UITypes;
+  system.Math;
 
 function CheckforAgnMrgrInstall(SimVersion, AddonXML, LWCFGPath: string; out AGNMrgrInstallLocation: string): Int64;
 function CheckforSODEInstall(SimVersion, LWCFGPath: string): Int64;
@@ -540,6 +540,7 @@ function GetSimPath(simkey64,simkey32: string): string;
 var myReg : TRegistry;
     SL: TStringList;
     aFileOpenDialog : TFileOpenDialog;
+    s: string;
 
 begin
   result := '';
