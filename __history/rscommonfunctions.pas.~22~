@@ -1586,6 +1586,7 @@ begin
         BckEvent :=  aComboBox.Onchange;
         aComboBox.Onchange := nil;
 
+//        i:= SL.IndexOf(aCombobox.Name+'.items');
         i:= FindMatchStr(SL, aCombobox.Name+'.items');
         list := SL.Strings[i].Split(['=',';']);
         aCombobox.Items.Clear;

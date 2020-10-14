@@ -4,10 +4,10 @@ interface
 
 uses
   Windows, Classes, Dialogs, ShellApi, Registry, SysUtils, StrUtils, Launch, Forms, StdCtrls, Controls, ShlObj, DateUtils,
-  System.IOUtils, System.Generics.Collections, Vcl.Graphics, Vcl.ExtCtrls,
-  system.Math;
+  System.IOUtils, System.Generics.Collections, Vcl.Graphics, Vcl.ExtCtrls, Vcl.WinXCtrls, Vcl.ComCtrls,
+  system.Math, system.UITypes;
 
-function CheckforAgnMrgrInstall(SimVersion, LWCFGPath: string; Out AGNMrgrInstallLocation: string): Int64;
+function CheckforAgnMrgrInstall(SimVersion, AddonXML, LWCFGPath: string; out AGNMrgrInstallLocation: string): Int64;
 function CheckforSODEInstall(SimVersion, LWCFGPath: string): Int64;
 function CheckforAGNError: string;
 function Edit_LWcfg(const {remind,} checked: boolean; sim, simpath, LWCFGpath: string{; out remindagain: boolean}): boolean;
@@ -21,7 +21,7 @@ function ReplaceXMLEntry (const FileToSearch, OldText, NewText: string): boolean
 function DetectInstalledSims: TArray<integer>;
 function GetSimPath(simkey64,simkey32: string): string;
 function FindInstallLocation(SceneryName, sceneryCFGPath, simpath, sim: string): string;
-function DetectInstalledProducts(sceneryCFGPath, sim: string; UseP3DAutogenSystem: boolean): TArray<Integer>;
+function DetectInstalledProducts(SimPath, AddonXML, sceneryCFGPath, sim: string; UseP3DAutogenSystem: boolean): TArray<Integer>;
 function GetSpecialFolder(const aCSIDL: Integer): string;
 function GetAppVersionStr(Exe: string): string;
 function GetAppVersionInt(Exe: string): Int64;
@@ -43,6 +43,12 @@ function RegQueryStringValue(RootKey: Cardinal; Key, Value: string): string;
 function BinaryStringToDecimal(BCDString: string): integer;
 function DeegreesMinutesToDecimalDegrees(s: string): string;
 function DeleteWithUndo(sFileName: string): boolean;
+function RestartThisApp: Boolean;
+function isLegacySim(sim: string): boolean;
+procedure EndianSwap(ValueIn: Pointer; Size: integer);
+procedure SaveState(Components: Array of TComponent; ComponentCount: integer; SaveFileName: string);
+procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
+function FindMatchStr(Strings: TStrings; const SubStr: string): Integer;
 
 type
   TAppender<T> = class
@@ -101,7 +107,7 @@ begin
 end;
 
 function CheckforSODEInstall(SimVersion, LWCFGPath: string): int64;
-var SODEInstallLocation, AddonCFGPath, SearchString: string;
+var SODEInstallLocation, AddonCFGPath, SearchString, v: string;
     y: integer;
     SL: TStringList;
 
@@ -109,12 +115,13 @@ var SODEInstallLocation, AddonCFGPath, SearchString: string;
 begin
   ////determine whether Arno's Autogen Configuration Merger is installed or not
   SODEInstallLocation := '';
-  AddonCFGPath := GetEnvironmentVariable('ProgramData')+'\Lockheed Martin\Prepar3D v4\Add-ons.cfg';
+  v := SimVersion[High(SimVersion)];
+  AddonCFGPath := GetEnvironmentVariable('ProgramData')+'\Lockheed Martin\Prepar3D v'+v+'\Add-ons.cfg';
   //check to see whether the tool is present in the exe.xml or whether addon.xml exists
 
   //get addon.xml path in My Documents folder given by the following reg key
   //HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders\Personal
-  If (SimVersion = 'p3dv4') and (FileExists(AddonCFGPath) = true) then
+  If not isLegacySim(simversion) and (FileExists(AddonCFGPath) = true) then
   begin
 
     SL := TStringList.Create;
@@ -122,7 +129,7 @@ begin
       //search for the install path of the Tool
       SL.LoadFromFile(AddonCFGPath);
       //We will need to find the SODE entry, could be first, middle or last
-      SearchString := '\SODE\P3Dv4';
+      SearchString := '\SODE\P3Dv'+v;
       y := Pos(lowercase(SearchString), lowercase(SL.Text)); //this is the end of the addon.xml directory
       If y > length(SearchString) then
       begin
@@ -186,8 +193,8 @@ begin
 end;
 
 ////////------------this function seems to be failing for newer versions of ACM------------//////////////
-function CheckforAgnMrgrInstall(SimVersion, LWCFGPath: string; out AGNMrgrInstallLocation: string): Int64;
-var AddONXMLPath, SearchPath: string;
+function CheckforAgnMrgrInstall(SimVersion, AddonXML, LWCFGPath: string; out AGNMrgrInstallLocation: string): Int64;
+var SearchPath: string;
     x,y,z: integer;
     SL: TStringList;
 ////////------------this function seems to be failing for newer versions of ACM------------//////////////
@@ -195,13 +202,12 @@ var AddONXMLPath, SearchPath: string;
 begin
   ////determine whether Arno's Autogen Configuration Merger is installed or not
   AGNMrgrInstallLocation := '';
-  AddonXMLPath := GetSpecialFolder(CSIDL_Personal)+'Prepar3D v4 Add-ons\AutogenConfigurationMerger\add-on.xml';
   //check to see whether the tool is present in the exe.xml or whether addon.xml exists
 
   //get addon.xml path in My Documents folder given by the following reg key
   //HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders\Personal
-  If (SimVersion = 'p3dv4') and (FileExists(AddonXMLPath) = true) then
-    SearchPath := AddonXMLPath
+  If not isLegacySim(simversion)  and (FileExists(AddonXML) = true) then
+    SearchPath := AddonXML
   else
     SearchPath:= LWCFGPath+'exe.xml';
 
@@ -284,7 +290,7 @@ begin
 
     ToSPB := false;
 
-    If sim = 'p3dv4' then
+    If not isLegacySim(sim) then
     begin
       TrafficHigh:= 'P3DTrafficHigh.txt';
       TrafficLow:= 'P3DTrafficLow.txt';
@@ -329,15 +335,6 @@ begin
          end;
         end;
      end;
-
-     //if we could not find a LWCFG (unlikely), show an error message and let the user decide on reminders.
-     {If remind and (LWcfg = '') then
-     begin
-          If MyMessageDialog('LWcfg cannot be found. Traffic speed cannot be edited.', mtWarning, mbOKCancel,['Ok', 'Never remind me again.']) = mrCancel then
-             remindagain := false;
-          result := false;
-          exit;
-     end;}
 
 
   //load the LWCFG.xml file that we found and replace the required text.
@@ -510,23 +507,6 @@ function DetectInstalledSims: TArray<integer>;
 var x: integer;
     myReg : TRegistry;
 
-//const
-// simkeys64: array [0..5] of string =
-// ('SOFTWARE\Lockheed Martin\Prepar3D v4',
-// 'SOFTWARE\Lockheed Martin\Prepar3D v3',
-// 'SOFTWARE\Lockheed Martin\Prepar3D v2',
-// 'SOFTWARE\LockheedMartin\Prepar3D',
-// 'SOFTWARE\DovetailGames\FSX',
-// 'SOFTWARE\Microsoft\Microsoft Games\Flight Simulator\10.0');
-//
-// simkeys32: array [0..5] of string =
-// ('SOFTWARE\Lockheed Martin\Prepar3D v4',
-// 'SOFTWARE\Wow6432Node\Lockheed Martin\Prepar3D v3',
-// 'SOFTWARE\Wow6432Node\Lockheed Martin\Prepar3D v2',
-// 'SOFTWARE\Wow6432Node\LockheedMartin\Prepar3D',
-// 'SOFTWARE\Wow6432Node\DovetailGames\FSX',
-// 'SOFTWARE\Wow6432Node\Microsoft\Microsoft Games\Flight Simulator\10.0');
-
 begin
 
   //scan for installed sims
@@ -563,18 +543,35 @@ end;
 function GetSimPath(simkey64,simkey32: string): string;
 var myReg : TRegistry;
     SL: TStringList;
+    aFileOpenDialog : TFileOpenDialog;
+
 begin
   result := '';
   If ContainsText(simkey64, 'x-plane_install_11.txt') then
   begin
+
     SL := TStringList.Create;
     try
       SL.LoadFromFile(GetEnvironmentVariable('LOCALAPPDATA')+'\x-plane_install_11.txt');
-      If SL.Text <> '' then
-        result := trim(SL.Text)
-    finally
+      If SL.Count = 1 then
+        result := trim(SL.Strings[0])
+      else
+      begin
+        MessageDlg('Multiple X-Plane 11 installations detected. Please select the correct folder.', mtError, [mbOk], 0);
+        aFileOpenDialog := TFileOpenDialog.Create(nil);
+        aFileOpenDialog.Options := [fdoPickFolders];
+        If aFileOpenDialog.Execute() then
+          result := aFileOpenDialog.FileName+'\';
+      end;
+      If result[length(result)] <> '\' then
+      begin
+        If result[length(result)] <> '/' then
+          result := result+'\';
+      end;
+    finally;
       SL.Free;
     end;
+
   end
   else
   begin
@@ -608,10 +605,11 @@ end;
 function FindInstallLocation(SceneryName, sceneryCFGPath, simpath, sim: string): string;
 var SL: TStringList;
     x: integer;
-    S: string;
+    S, v: string;
     FoundAddOnXMLs: Tarray<String>;
 begin
 
+  v := Sim[High(Sim)];
   result:='';
   SL := TStringList.Create;
 
@@ -643,7 +641,7 @@ begin
   else
   begin
 
-    //find install location for Scenery Name, note: for p34, it could be in add-on folder
+    //find install location for Scenery Name, note: for p34/5, it could be in add-on folder
     try
       If FileExists(sceneryCFGPath+'scenery.cfg') then
       begin
@@ -666,12 +664,12 @@ begin
     end;
 
     //SEARCH ALL THE ADD-ON.XMLS WE FIND IN MY DOCUMENTS\PREPAR3D ADD-ONS\
-    If (sim = 'p3dv4') and (result='') then
+    If not isLegacySim(sim) and (result='') then
     begin
 
-      If DirectoryExists(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v4 Add-ons\') then
+      If DirectoryExists(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v'+v+' Add-ons\') then
       begin
-        for S in TDirectory.GetFiles(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v4 Add-ons\', 'Add-on.xml', TSearchOption.soAllDirectories) do
+        for S in TDirectory.GetFiles(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v'+v+' Add-ons\', 'Add-on.xml', TSearchOption.soAllDirectories) do
           TAppender<String>.Append(FoundAddOnXMLs, S);
       end;
 
@@ -692,7 +690,7 @@ begin
          end;
          If x <> SL.Count - 1 then
 
-         //simpath is now P34 add-ons folder (in "S")
+         //simpath is now P34/5 add-ons folder (in "S")
          simpath := LeftStr(S,length(S)-length('Add-on.xml'));
         finally
           SL.Free;
@@ -706,8 +704,8 @@ begin
 
 
   //if the Installation is not absolute, make it so. We assume it's in the simpath
-  //Where Simpath is the full simulator path if not P34
-  //And Addon.xml path if it is p34
+  //Where Simpath is the full simulator path if not P34/5
+  //And Addon.xml path if it is p34/5
   If result<>'' then
   begin
   If result[2] <> ':' then
@@ -716,28 +714,29 @@ begin
 
 end;
 
-function DetectInstalledProducts(sceneryCFGPath, sim: string; UseP3DAutogenSystem: boolean): TArray<Integer>;
+function DetectInstalledProducts(SimPath, AddonXML, sceneryCFGPath, sim: string; UseP3DAutogenSystem: boolean): TArray<Integer>;
 var x, i: integer;
   SL: TStringList;
-  s, AddonXML: string;
+  v, s: string;
   nearbyproducts: TArray<integer>;
-  SimPath, RSCommonInstallLocation: string;
+  RSCommonInstallLocation: string;
   simindex: integer;
   aFileOpenDialog: TFileOpenDialog;
 
 begin
 
-  If sim = 'p3dv4' then
+  If not isLegacySim(sim) then
   begin
-    If DirectoryExists(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v4 Add-ons\') then
-      s:= GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v4 Add-ons\'
+    v := Sim[High(Sim)];
+    If DirectoryExists(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v'+v+' Add-ons\') then
+      s:= GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v'+v+' Add-ons\'
     else
     begin
-      If DirectoryExists(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v4 Add-ons\') then
-        s:= GetSpecialFolder(CSIDL_PROFILE)+'Documents\Prepar3D v4 Add-ons\'
+      If DirectoryExists(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v'+v+' Add-ons\') then
+        s:= GetSpecialFolder(CSIDL_PROFILE)+'Documents\Prepar3D v'+v+' Add-ons\'
       else
       begin
-        MessageDlg('Cannot find Prepar3D v4 Add-ons folder! Please select it!', mtError, [mbOk], 0);
+        MessageDlg('Cannot find Prepar3D v'+v+' Add-ons folder! Please select it!', mtError, [mbOk], 0);
         aFileOpenDialog := TFileOpenDialog.Create(nil);
         aFileOpenDialog.Options := [fdoPickFolders];
         If aFileOpenDialog.Execute() then
@@ -750,8 +749,7 @@ begin
 
   AddonXML := s+'Richer Simulations\Add-on.xml';
 
-  SimIndex := IndexStr(sim, ['p3dv4','p3dv3','p3dv2','p3d','fsxse','fsx', 'xp11']);
-  Simpath := GetSimPath(simkeys64[simindex], simkeys32[simindex]);
+  SimIndex := IndexStr(sim, ['p3dv4','p3dv3','p3dv2','p3d','fsxse','fsx', 'xp11', 'p3dv5']);
 
   //if sim is XP11
   If sim = 'xp11' then
@@ -779,7 +777,7 @@ begin
       begin
         If not TArray.BinarySearch<integer>(result, x, i) then  //if not already in the list,
         begin
-          //add it so that we can add it to the Add-on.xml later
+          //add it so that we can add it to the scenery_pack.ini later
           TAppender<Integer>.Append(nearbyproducts, x);
           TAppender<Integer>.Append(result, x);
         end;
@@ -819,7 +817,7 @@ begin
       SL.free;
     end;
   //then search the my documents folder for our add-on.xml to see what prodcuts it contains
-    If sim = 'p3dv4' then
+    If not isLegacySim(sim) then
     begin
       SL := TStringList.Create;
       try
@@ -852,7 +850,7 @@ begin
     end;
 
     //if the sim is not p34 then notify the user to add discovered products to the scenery library.
-    If (sim <> 'p3dv4') and (length(nearbyproducts)>0) then
+    If isLegacySim(sim) and (length(nearbyproducts)>0) then
     begin
       s := '';
       For x in nearbyproducts do
@@ -868,7 +866,7 @@ begin
   end;
 
 
-  If sim = 'p3dv4' then
+  If not isLegacySim(sim) then
   begin
     //create addon.xml if it does not exist
     If not FileExists(AddonXML) then
@@ -942,13 +940,13 @@ begin
 
       //Make Scenery Effects, Texture and Autogen paths Absolute
       If DirectoryExists(RicherSimsLocation+'RS Common') then
-        SL.Text := StringReplace(SL.text, '<Path>RS Common', '<Path>'+RicherSimsLocation+'RS Common', [rfReplaceAll]);   //scenery and autogen...
+        SL.Text := StringReplace(SL.text, '<Path>RS Common', '<Path>'+RicherSimsLocation+'RS Common', [rfReplaceAll, rfIgnoreCase]);   //scenery and autogen...
       If DirectoryExists(RicherSimsLocation+'Effects') then
-        SL.Text := StringReplace(SL.text, '<Path>Effects', '<Path>'+RicherSimsLocation+'Effects', [rfReplaceAll]);
+        SL.Text := StringReplace(SL.text, '<Path>Effects', '<Path>'+RicherSimsLocation+'Effects', [rfReplaceAll, rfIgnoreCase]);
       If DirectoryExists(RicherSimsLocation+'Texture') then
-        SL.Text := StringReplace(SL.text, '<Path>Texture', '<Path>'+RicherSimsLocation+'Texture', [rfReplaceAll]);
+        SL.Text := StringReplace(SL.text, '<Path>Texture', '<Path>'+RicherSimsLocation+'Texture', [rfReplaceAll, rfIgnoreCase]);
       If DirectoryExists(RicherSimsLocation+'Scenery') then
-        SL.Text := StringReplace(SL.text, '<Path>Scenery', '<Path>'+RicherSimsLocation+'Scenery', [rfReplaceAll]);
+        SL.Text := StringReplace(SL.text, '<Path>scenery', '<Path>'+RicherSimsLocation+'scenery', [rfReplaceAll, rfIgnoreCase]);
 
       SL.SaveToFile(AddonXML);
 
@@ -1069,6 +1067,7 @@ var SS: TStringStream;
 //Formats:
 //MDLXMDL
 //PV20MDL
+
 begin
   result := false;
   //bgl and mdl files must be loaded as streams since they contain random endoffilemarkers
@@ -1380,6 +1379,264 @@ begin
   Result := (0 = ShFileOperation(fos));  //?????????????????????????????????????????????????
 end;
 
+function RestartThisApp: Boolean;
+var
+  si: STARTUPINFO;
+  pi: PROCESS_INFORMATION;
+  CmdLine: string;
+begin
+  CmdLine := Format('"%s" /pid:%d', [ParamStr(0), GetCurrentProcessID()]);
+  ZeroMemory(@si, sizeof(si));
+  GetStartupInfo(si);
+  Result := CreateProcess(nil, PChar(CmdLine), nil, nil, False, 0, nil, nil, si, pi);
+  if Result then
+  begin
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    Application.Terminate;
+  end;
+end;
+
+function isLegacySim(sim: string): boolean;
+begin
+  If ((sim = 'p3dv4') or (sim = 'p3dv5')) then
+    result := false
+  else
+    result := true;
+end;
+
+procedure EndianSwap(ValueIn: Pointer; Size: integer);
+//http://delphi.cjcsoft.net//viewthread.php?tid=49519
+var
+  l: LongWord;
+  w: Word;
+begin
+  case Size of
+
+    2: begin
+      { ValueIn is WORD-sized }
+      w := PWord(ValueIn)^;
+      asm
+        mov ax,w;   { move w into ax register }
+        xchg al,ah; { swap lo and hi byte of word }
+        mov w,ax;   { move "swapped" ax back to w }
+      end;
+      PWord(ValueIn)^ := w;
+    end;
+
+    4: begin
+      { ValueIn is DWORD-sized }
+      l := PLongWord(ValueIn)^;
+      asm
+        mov eax,l; { move l into eax register }
+        BSWAP eax; { reverse the order of bytes in eax }
+        mov l,eax; { move "swapped" eax back to 1 }
+      end;
+      PLongWord(ValueIn)^ := l;
+    end;
+
+  end;
+end;
+
+
+//similar code @ http://edn.embarcadero.com/de/article/23057
+procedure SaveState(Components: Array of TComponent; ComponentCount: integer; Savefilename: string);
+var i: integer;
+    SL: TStringList;
+    aSwitch : TToggleSwitch;
+    aCheckbox: TCheckbox;
+    aComboBox: TComboBox;
+    aButton: TButton;
+    aEdit: TEdit;
+    aTrackbar: TTrackbar;
+    PersistentSwitches: TArray<TToggleSwitch>;
+    PersistentCheckBoxes: TArray<TCheckbox>;
+    PersistentComboBoxes: TArray<TComboBox>;
+    PersistentButtons: TArray<TButton>;
+    PersistentEdits: TArray<TEdit>;
+    PersistentTrackbars: TArray<TTrackBar>;
+    item,s: string;
+
+begin
+
+  for i:=0 to ComponentCount-1 do
+  begin
+    if (Components[i] is TToggleSwitch) then
+      TAppender<TToggleSwitch>.Append(PersistentSwitches, Components[i] as TToggleSwitch);
+    if (Components[i] is TCheckbox) then
+      TAppender<TCheckbox>.Append(PersistentCheckBoxes, Components[i] as TCheckbox);
+    if (Components[i] is TComboBox) then
+      TAppender<TComboBox>.Append(PersistentComboBoxes, Components[i] as TComboBox);
+    if (Components[i] is TButton) then
+      TAppender<TButton>.Append(PersistentButtons, Components[i] as TButton);
+    if (Components[i] is TEdit) then
+      TAppender<TEdit>.Append(PersistentEdits, Components[i] as TEdit);
+    if (Components[i] is TTrackBar) then
+      TAppender<TTrackBar>.Append(PersistentTrackbars, Components[i] as TTrackBar);
+  end;
+
+  SL := TStringList.Create;
+  try
+    SL.LoadFromFile(SaveFileName);
+    SL.Text := '';
+    For aSwitch in PersistentSwitches do
+      SL.add(aSwitch.name+'='+ BoolToStr(aSwitch.IsOn));
+    For aCheckBox in PersistentCheckBoxes do
+      SL.add(aCheckBox.name+'='+ BoolToStr(aCheckBox.Checked));
+    For aComboBox in PersistentComboBoxes do
+    begin
+      SL.add(aComboBox.name+'='+ IntToStr(aComboBox.itemindex));
+      s := '';
+      For item in aCombobox.Items do
+      begin
+        s:= s+item+';'
+      end;
+      SL.add(aComboBox.name+'.items='+s);
+    end;
+    For aButton in PersistentButtons do
+      SL.add(aButton.name+'='+ BoolToStr(aButton.enabled));
+    For aEdit in PersistentEdits do
+      SL.add(aEdit.name+'='+ aEdit.text);
+    For aTrackbar in PersistentTrackbars do
+      SL.add(aTrackbar.name+'='+ IntToStr(aTrackbar.position));
+
+    SL.SaveToFile(SaveFileName);
+  finally
+    SL.Free;
+  end;
+
+end;
+
+procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
+var i: integer;
+    SL: TStringList;
+    aSwitch : TToggleSwitch;
+    aCheckbox: TCheckbox;
+    aComboBox: TComboBox;
+    aButton: TButton;
+    aEdit: TEdit;
+    aTrackbar: TTrackbar;
+    PersistentSwitches: TArray<TToggleSwitch>;
+    PersistentCheckBoxes: TArray<TCheckbox>;
+    PersistentComboBoxes: TArray<TComboBox>;
+    PersistentButtons: TArray<TButton>;
+    PersistentEdits: TArray<TEdit>;
+    PersistentTrackbars: TArray<TTrackBar>;
+    s: string;
+    list: TArray<string>;
+    BckEvent: TNotifyEvent;
+
+begin
+
+
+//initialize switches, buttons, etc... from .fs file if it exists
+  If FileExists(LoadFileName) then
+  begin
+
+    for i:=0 to ComponentCount-1 do
+    begin
+      if (Components[i] is TToggleSwitch) then
+        TAppender<TToggleSwitch>.Append(PersistentSwitches, Components[i] as TToggleSwitch);
+      if (Components[i] is TCheckbox) then
+        TAppender<TCheckbox>.Append(PersistentCheckBoxes, Components[i] as TCheckbox);
+      if (Components[i] is TComboBox) then
+        TAppender<TComboBox>.Append(PersistentComboBoxes, Components[i] as TComboBox);
+      if (Components[i] is TButton) then
+        TAppender<TButton>.Append(PersistentButtons, Components[i] as TButton);
+      if (Components[i] is TEdit) then
+        TAppender<TEdit>.Append(PersistentEdits, Components[i] as TEdit);
+      if (Components[i] is TTrackbar) then
+        TAppender<TTrackbar>.Append(PersistentTrackbars, Components[i] as TTrackbar);
+
+    end;
+
+    SL := TStringList.Create;
+    try
+      SL.LoadFromFile(LoadFileName);
+
+      For aSwitch in PersistentSwitches do
+      begin
+        BckEvent :=  aSwitch.OnClick;
+        aSwitch.OnClick := nil;
+
+        If SL.text[Pos(aSwitch.Name+'=',SL.Text)+length(aSwitch.Name+'=')] = '0' then
+          aSwitch.State := tssOff
+        else
+          aSwitch.State := tssOn;
+
+        aSwitch.OnClick := BckEvent;
+      end;
+
+      For aCheckbox in PersistentCheckboxes do
+      begin
+        BckEvent :=  aCheckbox.OnClick;
+        aCheckbox.OnClick := nil;
+
+        If SL.text[Pos(aCheckbox.Name+'=',SL.Text)+length(aCheckbox.Name+'=')] = '0' then
+          aCheckbox.checked := false
+        else
+          aCheckbox.checked := true;
+
+        aCheckbox.OnClick := BckEvent;
+      end;
+
+      For aComboBox in PersistentComboBoxes do
+      begin
+        BckEvent :=  aComboBox.Onchange;
+        aComboBox.Onchange := nil;
+
+//        i:= SL.IndexOf(aCombobox.Name+'.items');
+        i:= FindMatchStr(SL.ToStringArray, aCombobox.Name+'.items');
+        list := SL.Strings[i].Split(['=',';']);
+        aComboBox.Items.AddStrings(Copy(list,1,length(list)));
+
+        aComboBox.ItemIndex := StrToIntDef(SL.text[Pos(aComboBox.Name+'=',SL.Text)+length(aComboBox.Name+'=')], 0);
+
+        aComboBox.OnChange := BckEvent;
+      end;
+
+      For aButton in PersistentButtons do
+      begin
+        BckEvent :=  aButton.OnClick;
+        aButton.OnClick := nil;
+
+        If SL.text[Pos(aButton.Name+'=',SL.Text)+length(aButton.Name+'=')] = '0' then
+          aButton.enabled := false
+        else
+          aButton.enabled := true;
+
+        aButton.OnClick := BckEvent;
+      end;
+
+      For aEdit in PersistentEdits do
+        aEdit.text := ReturnStringBetween(aEdit.Name+'=', sLineBreak, 'RSSCT.fs');
+
+      For aTrackbar in PersistentTrackbars do
+      begin
+        BckEvent :=  aTrackbar.OnChange;
+        aTrackbar.OnChange := nil;
+
+        aTrackbar.position := StrToIntDef(ReturnStringBetween(aTrackbar.Name+'=', sLineBreak, 'RSSCT.fs'), 0);
+
+        aTrackbar.OnChange := BckEvent;
+      end;
+    finally
+      SL.Free;
+    end;
+
+  end;
+end;
+
+
+function FindMatchStr(Strings: TStrings; const SubStr: string): Integer;
+begin
+  for Result := 0 to Strings.Count-1 do
+    if ContainsStr(Strings[Result], SubStr) then
+      exit;
+  Result := -1;
+end;
+
 end.
+
 
 

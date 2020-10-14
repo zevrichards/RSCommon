@@ -1489,8 +1489,7 @@ begin
       s := '';
       For item in aCombobox.Items do
       begin
-        If Item<>'' then
-          s:= s+';'+item
+        s:= s+item+';'
       end;
       SL.add(aComboBox.name+'.items='+s);
     end;
@@ -1586,9 +1585,9 @@ begin
         BckEvent :=  aComboBox.Onchange;
         aComboBox.Onchange := nil;
 
+//        i:= SL.IndexOf(aCombobox.Name+'.items');
         i:= FindMatchStr(SL, aCombobox.Name+'.items');
         list := SL.Strings[i].Split(['=',';']);
-        aCombobox.Items.Clear;
         aComboBox.Items.AddStrings(Copy(list,1,length(list)));
 
         aComboBox.ItemIndex := StrToIntDef(SL.text[Pos(aComboBox.Name+'=',SL.Text)+length(aComboBox.Name+'=')], 0);
@@ -1611,9 +1610,11 @@ begin
 
       For aEdit in PersistentEdits do
       begin
-          s := ReturnStringBetweenText(aEdit.Name+'=', sLineBreak, SL.Text);
-          If s <> '' then
-            aEdit.Text := s;
+//        If aEdit.NumbersOnly = true then
+//
+//        else
+          aEdit.text := ReturnStringBetweenText(aEdit.Name+'=', sLineBreak, 'RSSCT.fs');
+
       end;
 
       For aTrackbar in PersistentTrackbars do
@@ -1621,7 +1622,7 @@ begin
         BckEvent :=  aTrackbar.OnChange;
         aTrackbar.OnChange := nil;
 
-        aTrackbar.position := StrToIntDef(ReturnStringBetweenText(aTrackbar.Name+'=', sLineBreak, SL.Text), 0);
+        aTrackbar.position := StrToIntDef(ReturnStringBetween(aTrackbar.Name+'=', sLineBreak, 'RSSCT.fs'), 0);
 
         aTrackbar.OnChange := BckEvent;
       end;

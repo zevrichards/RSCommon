@@ -4,8 +4,8 @@ interface
 
 uses
   Windows, Classes, Dialogs, ShellApi, Registry, SysUtils, StrUtils, Launch, Forms, StdCtrls, Controls, ShlObj, DateUtils,
-  System.IOUtils, System.Generics.Collections, Vcl.Graphics, Vcl.ExtCtrls,
-  system.Math;
+  System.IOUtils, System.Generics.Collections, Vcl.Graphics, Vcl.ExtCtrls, Vcl.WinXCtrls, Vcl.ComCtrls,
+  system.Math, system.UITypes;
 
 function CheckforAgnMrgrInstall(SimVersion, AddonXML, LWCFGPath: string; out AGNMrgrInstallLocation: string): Int64;
 function CheckforSODEInstall(SimVersion, LWCFGPath: string): Int64;
@@ -45,6 +45,10 @@ function DeegreesMinutesToDecimalDegrees(s: string): string;
 function DeleteWithUndo(sFileName: string): boolean;
 function RestartThisApp: Boolean;
 function isLegacySim(sim: string): boolean;
+procedure EndianSwap(ValueIn: Pointer; Size: integer);
+procedure SaveState(Components: Array of TComponent; ComponentCount: integer; SaveFileName: string);
+procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
+function FindMatchStr(SL: TStringList; const SubStr: string): Integer;
 
 type
   TAppender<T> = class
@@ -279,7 +283,7 @@ begin
 end;
 
 function Edit_LWcfg(const {remind,} checked: boolean; sim, simpath, LWCFGpath: string{; out remindagain: boolean}): boolean;
-var LWcfg, TrafficHigh, TrafficLow: string;
+var LWcfg, TrafficHigh, TrafficLow, log: string;
   SL: TStringList;
   ToSPB : boolean;
 begin
@@ -321,7 +325,7 @@ begin
         If FileExists(LWCFGPath+'LWcfg.spb')=true then
         begin
          ToSPB := true;  //we're handling an SPB file and will need to convert it back later.
-         If RunProgramWaiting('spb2xml.exe', '', ['-s', '"'+simpath+'propdefs"', '"'+LWCFGpath+'LWcfg.spb"'])<>-1 then   //convert
+         If RunProgramWaiting('spb2xml.exe', '', ['-s', '"'+simpath+'propdefs"', '"'+LWCFGpath+'LWcfg.spb"'], log)<>-1 then   //convert
          begin
             If FileExists(LWCFGPath+'LWcfg.xml') then
             begin
@@ -350,7 +354,7 @@ begin
   //try to convert the xml file back to spb and delete the xml if it was originally in spb format.
   If ToSPB then
   begin
-    If RunProgramWaiting('simpropcompiler.exe', '', ['2spb', '-symbols', '"'+SimPath+'propdefs\*.xml"', '"'+LWcfgPath+'LWcfg.xml"', '"'+LWcfgPath+'LWcfg.spb"'])<>-1 then
+    If RunProgramWaiting('simpropcompiler.exe', '', ['2spb', '-symbols', '"'+SimPath+'propdefs\*.xml"', '"'+LWcfgPath+'LWcfg.xml"', '"'+LWcfgPath+'LWcfg.spb"'], log)<>-1 then
     begin
      If FileExists(LWCFGPath+'LWcfg.spb') then
         DeleteFile (LWCFGPath+'LWcfg.xml');
@@ -540,7 +544,6 @@ function GetSimPath(simkey64,simkey32: string): string;
 var myReg : TRegistry;
     SL: TStringList;
     aFileOpenDialog : TFileOpenDialog;
-    s: string;
 
 begin
   result := '';
@@ -1400,6 +1403,241 @@ begin
     result := false
   else
     result := true;
+end;
+
+procedure EndianSwap(ValueIn: Pointer; Size: integer);
+//http://delphi.cjcsoft.net//viewthread.php?tid=49519
+var
+  l: LongWord;
+  w: Word;
+begin
+  case Size of
+
+    2: begin
+      { ValueIn is WORD-sized }
+      w := PWord(ValueIn)^;
+      asm
+        mov ax,w;   { move w into ax register }
+        xchg al,ah; { swap lo and hi byte of word }
+        mov w,ax;   { move "swapped" ax back to w }
+      end;
+      PWord(ValueIn)^ := w;
+    end;
+
+    4: begin
+      { ValueIn is DWORD-sized }
+      l := PLongWord(ValueIn)^;
+      asm
+        mov eax,l; { move l into eax register }
+        BSWAP eax; { reverse the order of bytes in eax }
+        mov l,eax; { move "swapped" eax back to 1 }
+      end;
+      PLongWord(ValueIn)^ := l;
+    end;
+
+  end;
+end;
+
+
+//similar code @ http://edn.embarcadero.com/de/article/23057
+procedure SaveState(Components: Array of TComponent; ComponentCount: integer; Savefilename: string);
+var i: integer;
+    SL: TStringList;
+    aSwitch : TToggleSwitch;
+    aCheckbox: TCheckbox;
+    aComboBox: TComboBox;
+    aButton: TButton;
+    aEdit: TEdit;
+    aTrackbar: TTrackbar;
+    PersistentSwitches: TArray<TToggleSwitch>;
+    PersistentCheckBoxes: TArray<TCheckbox>;
+    PersistentComboBoxes: TArray<TComboBox>;
+    PersistentButtons: TArray<TButton>;
+    PersistentEdits: TArray<TEdit>;
+    PersistentTrackbars: TArray<TTrackBar>;
+    item,s: string;
+
+begin
+
+  for i:=0 to ComponentCount-1 do
+  begin
+    if (Components[i] is TToggleSwitch) then
+      TAppender<TToggleSwitch>.Append(PersistentSwitches, Components[i] as TToggleSwitch);
+    if (Components[i] is TCheckbox) then
+      TAppender<TCheckbox>.Append(PersistentCheckBoxes, Components[i] as TCheckbox);
+    if (Components[i] is TComboBox) then
+      TAppender<TComboBox>.Append(PersistentComboBoxes, Components[i] as TComboBox);
+    if (Components[i] is TButton) then
+      TAppender<TButton>.Append(PersistentButtons, Components[i] as TButton);
+    if (Components[i] is TEdit) then
+      TAppender<TEdit>.Append(PersistentEdits, Components[i] as TEdit);
+    if (Components[i] is TTrackBar) then
+      TAppender<TTrackBar>.Append(PersistentTrackbars, Components[i] as TTrackBar);
+  end;
+
+  SL := TStringList.Create;
+  try
+    SL.LoadFromFile(SaveFileName);
+    SL.Text := '';
+    For aSwitch in PersistentSwitches do
+      SL.add(aSwitch.name+'='+ BoolToStr(aSwitch.IsOn));
+    For aCheckBox in PersistentCheckBoxes do
+      SL.add(aCheckBox.name+'='+ BoolToStr(aCheckBox.Checked));
+    For aComboBox in PersistentComboBoxes do
+    begin
+      SL.add(aComboBox.name+'='+ IntToStr(aComboBox.itemindex));
+      s := '';
+      For item in aCombobox.Items do
+      begin
+        s:= s+item+';'
+      end;
+      SL.add(aComboBox.name+'.items='+s);
+    end;
+    For aButton in PersistentButtons do
+      SL.add(aButton.name+'='+ BoolToStr(aButton.enabled));
+    For aEdit in PersistentEdits do
+      SL.add(aEdit.name+'='+ aEdit.text);
+    For aTrackbar in PersistentTrackbars do
+      SL.add(aTrackbar.name+'='+ IntToStr(aTrackbar.position));
+
+    SL.SaveToFile(SaveFileName);
+  finally
+    SL.Free;
+  end;
+
+end;
+
+procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
+var i: integer;
+    SL: TStringList;
+    aSwitch : TToggleSwitch;
+    aCheckbox: TCheckbox;
+    aComboBox: TComboBox;
+    aButton: TButton;
+    aEdit: TEdit;
+    aTrackbar: TTrackbar;
+    PersistentSwitches: TArray<TToggleSwitch>;
+    PersistentCheckBoxes: TArray<TCheckbox>;
+    PersistentComboBoxes: TArray<TComboBox>;
+    PersistentButtons: TArray<TButton>;
+    PersistentEdits: TArray<TEdit>;
+    PersistentTrackbars: TArray<TTrackBar>;
+    s: string;
+    list: TArray<string>;
+    BckEvent: TNotifyEvent;
+
+begin
+
+
+//initialize switches, buttons, etc... from .fs file if it exists
+  If FileExists(LoadFileName) then
+  begin
+
+    for i:=0 to ComponentCount-1 do
+    begin
+      if (Components[i] is TToggleSwitch) then
+        TAppender<TToggleSwitch>.Append(PersistentSwitches, Components[i] as TToggleSwitch);
+      if (Components[i] is TCheckbox) then
+        TAppender<TCheckbox>.Append(PersistentCheckBoxes, Components[i] as TCheckbox);
+      if (Components[i] is TComboBox) then
+        TAppender<TComboBox>.Append(PersistentComboBoxes, Components[i] as TComboBox);
+      if (Components[i] is TButton) then
+        TAppender<TButton>.Append(PersistentButtons, Components[i] as TButton);
+      if (Components[i] is TEdit) then
+        TAppender<TEdit>.Append(PersistentEdits, Components[i] as TEdit);
+      if (Components[i] is TTrackbar) then
+        TAppender<TTrackbar>.Append(PersistentTrackbars, Components[i] as TTrackbar);
+
+    end;
+
+    SL := TStringList.Create;
+    try
+      SL.LoadFromFile(LoadFileName);
+
+      For aSwitch in PersistentSwitches do
+      begin
+        BckEvent :=  aSwitch.OnClick;
+        aSwitch.OnClick := nil;
+
+        If SL.text[Pos(aSwitch.Name+'=',SL.Text)+length(aSwitch.Name+'=')] = '0' then
+          aSwitch.State := tssOff
+        else
+          aSwitch.State := tssOn;
+
+        aSwitch.OnClick := BckEvent;
+      end;
+
+      For aCheckbox in PersistentCheckboxes do
+      begin
+        BckEvent :=  aCheckbox.OnClick;
+        aCheckbox.OnClick := nil;
+
+        If SL.text[Pos(aCheckbox.Name+'=',SL.Text)+length(aCheckbox.Name+'=')] = '0' then
+          aCheckbox.checked := false
+        else
+          aCheckbox.checked := true;
+
+        aCheckbox.OnClick := BckEvent;
+      end;
+
+      For aComboBox in PersistentComboBoxes do
+      begin
+        BckEvent :=  aComboBox.Onchange;
+        aComboBox.Onchange := nil;
+
+//        i:= SL.IndexOf(aCombobox.Name+'.items');
+        i:= FindMatchStr(SL, aCombobox.Name+'.items');
+        list := SL.Strings[i].Split(['=',';']);
+        aComboBox.Items.AddStrings(Copy(list,1,length(list)));
+
+        aComboBox.ItemIndex := StrToIntDef(SL.text[Pos(aComboBox.Name+'=',SL.Text)+length(aComboBox.Name+'=')], 0);
+
+        aComboBox.OnChange := BckEvent;
+      end;
+
+      For aButton in PersistentButtons do
+      begin
+        BckEvent :=  aButton.OnClick;
+        aButton.OnClick := nil;
+
+        If SL.text[Pos(aButton.Name+'=',SL.Text)+length(aButton.Name+'=')] = '0' then
+          aButton.enabled := false
+        else
+          aButton.enabled := true;
+
+        aButton.OnClick := BckEvent;
+      end;
+
+      For aEdit in PersistentEdits do
+      begin
+          s := ReturnStringBetweenText(aEdit.Name+'=', sLineBreak, 'RSSCT.fs');
+          If s <> '' then
+            aEdit.Text := s;
+      end;
+
+      For aTrackbar in PersistentTrackbars do
+      begin
+        BckEvent :=  aTrackbar.OnChange;
+        aTrackbar.OnChange := nil;
+
+        aTrackbar.position := StrToIntDef(ReturnStringBetween(aTrackbar.Name+'=', sLineBreak, 'RSSCT.fs'), 0);
+
+        aTrackbar.OnChange := BckEvent;
+      end;
+    finally
+      SL.Free;
+    end;
+
+  end;
+end;
+
+
+function FindMatchStr(SL: TStringList; const SubStr: string): Integer;
+begin
+  for Result := 0 to SL.Count-1 do
+    if ContainsStr(SL.Strings[Result], SubStr) then
+      exit;
+  Result := -1;
 end;
 
 end.
