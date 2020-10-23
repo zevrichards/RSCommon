@@ -102,15 +102,12 @@ unit Launch;
 interface
 
 uses
-  Windows,
-  //added
-  Classes;
+  Windows;
 
 type
   TStringDynArray = array of string;
 
 function LocateProgramInSearchPath(ProgramName: string): string;
-function ConsoleStarterWithOutput(prog, workdir: string; params: array of string; showmode: integer; out output: string; const bSilent: boolean=false): integer;
 function StartProgram(prog, workdir: string; params: array of string; out output: string; show: boolean=True; const bSilent: boolean=False ): boolean;
 function RunProgramBlocking(prog, workdir: string; params: array of string; out output: string; mode: integer=SW_HIDE): integer;
 function RunProgramWaiting(prog, workdir: string; params: array of string; out output: string): integer;
@@ -156,174 +153,32 @@ begin
     Result := ProgramName;
 end;
 
-function ConsoleStarterWithOutput(prog, workdir: string;
-                        params: array of string; showmode: integer; out output: string; const bSilent: boolean=false): integer;
-var
-  StartInf : TStartupInfo;
-  SecurAtt   : TSecurityAttributes;
-  ProcInf  : TProcessInformation;
-  StdOutPipeRead, StdOutPipeWrite: THandle;
-  WasOK: Boolean;
-  Buffer: pointer;
-  BytesRead: Cardinal;
-  //WorkDir: string;
-  Handle: Boolean;
-  args{, output}     : string;
-  pworkdir : PChar;
-  i        : integer;
-  SL: TStringList;
-
-const
-    READ_BUFFER_SIZE = 2048;
-
-//some code from https://stackoverflow.com/questions/9119999/getting-output-from-a-shell-dos-app-into-a-delphi-app
-
-begin
-  // It appears that it is also possible to call ShellExecute, what seems
-  // to be a bit a higher level function:
-  // ShellExecute(handle, "open", path_to_file, NULL, NULL, SW_SHOWNORMAL);
-  // Another alternative can be calling WinExec, but with the drawback of
-  // not having the possibility to specify the work directory.
-
-  output:= '';
-  ZeroMemory(@StartInf, sizeof(TStartupInfo));
-  ZeroMemory(@ProcInf, sizeof(TProcessInformation));
-
-  with SecurAtt do begin
-    nLength := SizeOf(SecurAtt);
-    bInheritHandle := True;
-    lpSecurityDescriptor := nil;
-  end;
-
-//  CreatePipe(StdOutPipeRead, StdOutPipeWrite, @SecurAtt, 0);  //for reading any output
-
-  try
-
-//    GetMem(Buffer, READ_BUFFER_SIZE);
-
-    With StartInf do
-    begin
-      cb      := sizeof(TStartupInfo);
-      dwFlags := STARTF_USESHOWWINDOW;
-      wShowWindow := showmode;
-      hStdInput := GetStdHandle(STD_INPUT_HANDLE); // don't redirect stdin
-      hStdOutput := StdOutPipeWrite;
-      hStdError := StdOutPipeWrite;
-    end;
-
-    // prog may include implicit arguments. When the program file name contains
-    // spaces, the program file in prog should be surrounded with quotes. When
-    // prog contains spaces but no quotes, this function will add surrounding quotes.
-    if (Pos(' ', prog)>0) and (Pos('"', prog)<=0) then
-      args := '"' + prog + '"'
-    else
-      args := prog;
-
-    for i:=low(params) to high(params) do
-    begin
-      // Enclose arguments containing spaces in double quotes to get them
-      // seperated properly
-      if Pos(' ', params[i])>0 then
-      begin
-        if (Length(args)>0) then // Try to add spaces only when necessary
-          args := args + ' ' + AnsiQuotedStr(AnsiDequotedStr(params[i], '"'), '"')
-        else
-          args := AnsiQuotedStr(AnsiDequotedStr(params[i], '"'), '"');
-      end
-      else
-      begin
-        if Length(args)>0 then // Try to add spaces only when necessary
-          args := args + ' ' + params[i]
-        else
-          args := params[i]
-      end
-    end;
-
-    if Length(workdir)>0 then
-      pworkdir := PChar(workdir)
-    else
-      pworkdir := nil;
-
-    args := GetEnvironmentVariable('COMSPEC')+' /C '+args+' > outputlog.txt';
-
-    // According to MSDN batch files need special treatment:
-    // <q http://msdn.microsoft.com/en-us/library/ms682425%28v=vs.85%29.aspx>
-    // To run a batch file, you must start the command interpreter; set
-    // lpApplicationName to cmd.exe and set lpCommandLine to the following arguments:
-    // /c plus the name of the batch file.
-    // </q>
-    // On Vista x64 this does not work directly. Instead of cmd.exe one should pass
-    // the full path (e.g. c:\Windows\System32\cmd.exe), as follows from "The function
-    // will not use the search path".
-    //
-    // However, it is also possible to run the batch file just like any other
-    // executable (although pre-XP versions did not always allow spaces, which
-    // were converted to short paths), so we will not call cmd.exe here.
-
-    if not CreateProcess(nil, PChar(args), nil, nil, True, 0, nil, pworkdir, StartInf, ProcInf) then
-    begin
-      if not bSilent then
-        MessageDlg('Unable to run: '#13#10'''' + args + '''', mtError, [mbOk], 0);
-      result := 0; // ProcInf.hProcess turns out to be 0 when CreateProcess() fails
-    end
-    else
-    begin
-
-      result := ProcInf.hProcess;
-
-      try
-        while WaitForSingleObject(ProcInf.hProcess, 50)=WAIT_TIMEOUT do
-          Application.ProcessMessages;
-
-        SL := TStringList.Create;
-        try
-          SL.LoadFromFile(workdir+'outputlog.txt');
-          output := SL.text;
-        finally
-          SL.Free;
-        end;
-        //WaitForSingleObject(ProcInf.hProcess, INFINITE);
-      finally
-        //CloseHandle(ProcInf.hThread);
-
-      end;
-    end;
-    // The handles for both the process and the main thread must be closed through
-    // calls to CloseHandle. The handle to ProcInf.hThread is not needed, so it is
-    // best to close it immediately after the process is created. ProcInf.hProcess
-    // may be needed by the caller.
-
-
-
-  finally
-    CloseHandle(ProcInf.hThread);
-    //CloseHandle(ProcInf.hProcess);
-  end;
-
-
-
-end;
-
 // Internal common code for the 3 exported program starters
 
 function ProgramStarter(prog, workdir: string;
                         params: array of string; showmode: integer; out output: string; const bSilent: boolean=False): integer;
+const
+    READ_BUFFER_SIZE = 2048;
 var
   StartInf : TStartupInfo;
   SecurAtt   : TSecurityAttributes;
   ProcInf  : TProcessInformation;
-  StdOutPipeRead, StdOutPipeWrite: THandle;
+  StdOutPipeRead, StdOutPipeWrite, OutputLog: THandle;
   WasOK: Boolean;
-  Buffer: pointer;
+//  pBuffer: Array [0..READ_BUFFER_SIZE] of AnsiChar;
+//  dBuffer: Array [0..READ_BUFFER_SIZE] of AnsiChar;
+//  Buffer: Array [0..READ_BUFFER_SIZE] of AnsiChar;
+  Buffer: array[1..32767] of char;
   BytesRead: Cardinal;
   //WorkDir: string;
   Handle: Boolean;
   args{, output}     : string;
   pworkdir : PChar;
   i        : integer;
+  dRunning: DWORD;
+  TotalBytesRead,bytesLeft,BytesAvailable: DWORD;
 
-const
-    READ_BUFFER_SIZE = 2048;
+
 
 //some code from https://stackoverflow.com/questions/9119999/getting-output-from-a-shell-dos-app-into-a-delphi-app
 
@@ -335,8 +190,10 @@ begin
   // not having the possibility to specify the work directory.
 
   output:= '';
-  ZeroMemory(@StartInf, sizeof(TStartupInfo));
-  ZeroMemory(@ProcInf, sizeof(TProcessInformation));
+
+
+
+
 
   with SecurAtt do begin
     nLength := SizeOf(SecurAtt);
@@ -344,20 +201,23 @@ begin
     lpSecurityDescriptor := nil;
   end;
 
-  CreatePipe(StdOutPipeRead, StdOutPipeWrite, @SecurAtt, 0);  //for reading any output
+  OutPutLog := CreateFile( 'C:\Users\CSI\Desktop\working\output.txt',GENERIC_WRITE,{FILE_SHARE_WRITE or} FILE_SHARE_READ,nil,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL, 0);
+  Win32Check(OutPutLog <> INVALID_HANDLE_VALUE);
+  Win32Check(SetHandleInformation(OutPutLog, HANDLE_FLAG_INHERIT, 1));
 
   try
 
-    GetMem(Buffer, READ_BUFFER_SIZE);
-
+//    GetMem(Buffer, READ_BUFFER_SIZE);
+    ZeroMemory(@StartInf, sizeof(TStartupInfo));
+    ZeroMemory(@ProcInf, sizeof(TProcessInformation));
     With StartInf do
     begin
       cb      := sizeof(TStartupInfo);
       dwFlags := STARTF_USESHOWWINDOW;
       wShowWindow := showmode;
       hStdInput := GetStdHandle(STD_INPUT_HANDLE); // don't redirect stdin
-      hStdOutput := StdOutPipeWrite;
-      hStdError := StdOutPipeWrite;
+      hStdOutput := OutPutLog;
+      hStdError := OutPutLog;
     end;
 
     // prog may include implicit arguments. When the program file name contains
@@ -417,25 +277,64 @@ begin
     begin
 
       result := ProcInf.hProcess;
+      WaitForSingleObject(ProcInf.hProcess, WAIT_TIMEOUT);
+      {TotalBytesRead := 0;
 
-      try
-        while WaitForSingleObject(ProcInf.hProcess, 50)=WAIT_TIMEOUT do
-          Application.ProcessMessages;
+      repeat
+        result := ProcInf.hProcess;
+        dRunning := WaitForSingleObject(ProcInf.hProcess, 50);
+        Application.ProcessMessages;
 
-        repeat
-            ReadFile(StdOutPipeWrite, Buffer^, READ_BUFFER_SIZE, BytesRead, nil);
-            if BytesRead > 0 then
-            begin
-              output := output + String(Buffer)
-              //Inc(Result, vReadBytes);
-            end;
-        until (BytesRead < READ_BUFFER_SIZE);
-        //ShowMessage(output);                                                  //Decide what to do with output here. Log It?
-        //WaitForSingleObject(ProcInf.hProcess, INFINITE);
-      finally
-        //CloseHandle(ProcInf.hThread);
+        if (PeekNamedPipe(StdOutPipeRead, nil, 0, @bytesRead, @BytesAvailable, @bytesLeft)) then
+        begin
+          WaitForSingleObject(ProcInf.hProcess, 50);
+          if (BytesAvailable > 0) then
+          begin
+            if not ReadFile(StdOutPipeRead, buffer[totalBytesRead], BytesAvailable, bytesRead, nil) then
+              ShowMessage(SysErrorMessage(GetLastError));
+          end;
 
-      end;
+          totalBytesRead := totalBytesRead + bytesRead;
+
+        end
+        else
+          ShowMessage(SysErrorMessage(GetLastError));
+
+      until (dRunning <> WAIT_TIMEOUT);
+
+      buffer[totalBytesRead]:= #0;
+      OemToChar(@buffer, @buffer);
+      output := output + String(buffer); }
+//      result := ProcInf.hProcess;
+////      CloseHandle(StdOutPipeWrite);
+//      try
+//
+//        while WaitForSingleObject(ProcInf.hProcess, 50)=WAIT_TIMEOUT do
+//          Application.ProcessMessages;
+//        WasOK := PeekNamedPipe(StdOutPipeRead, @Buffer, READ_BUFFER_SIZE, @BytesRead, @BytesAvailable, nil);
+//        if not WasOK then
+//                ShowMessage(SysErrorMessage(GetLastError));
+//        If BytesAvailable > 0 then
+//        begin
+//          {repeat
+//              WasOK := ReadFile(StdOutPipeWrite, Buffer, READ_BUFFER_SIZE, BytesRead, nil);
+//              if not WasOK then
+//                ShowMessage(SysErrorMessage(GetLastError));
+//              if BytesRead > 0 then
+//              begin
+//                output := output + String(Buffer)
+//                //Inc(Result, vReadBytes);
+//              end;
+//          until (BytesRead < READ_BUFFER_SIZE);}
+//          output := output + String(Buffer);
+//        end;
+////        until not WasOK or (BytesRead = 0);  }
+//        ShowMessage(String(Buffer));                                            //Decide what to do with output here. Log It?
+//        //WaitForSingleObject(ProcInf.hProcess, INFINITE);
+//      finally
+//        //CloseHandle(ProcInf.hThread);
+//
+//      end;
     end;
     // The handles for both the process and the main thread must be closed through
     // calls to CloseHandle. The handle to ProcInf.hThread is not needed, so it is
@@ -445,9 +344,9 @@ begin
 
 
   finally
-    FreeMem(Buffer);
-    CloseHandle(StdOutPipeRead);
-    CloseHandle(StdOutPipeWrite);
+//    FreeMem(pABuffer);
+//    CloseHandle(StdOutPipeRead);
+    CloseHandle(OutPutLog);
     CloseHandle(ProcInf.hThread);
     //CloseHandle(ProcInf.hProcess);
   end;

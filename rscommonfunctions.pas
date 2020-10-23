@@ -49,6 +49,7 @@ procedure EndianSwap(ValueIn: Pointer; Size: integer);
 procedure SaveState(Components: Array of TComponent; ComponentCount: integer; SaveFileName: string);
 procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
 function FindMatchStr(SL: TStringList; const SubStr: string): Integer;
+function CompareInt(const L, R: integer): integer;
 
 type
   TAppender<T> = class
@@ -1639,6 +1640,16 @@ begin
     if ContainsStr(SL.Strings[Result], SubStr) then
       exit;
   Result := -1;
+end;
+
+function CompareInt(const L, R: integer): integer;
+begin
+   if L=R then
+      Result:=0
+   else if L<R then
+      Result:=-1
+   else
+      Result:=1;
 end;
 
 end.

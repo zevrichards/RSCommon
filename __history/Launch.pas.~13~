@@ -244,8 +244,6 @@ begin
     else
       pworkdir := nil;
 
-    args := GetEnvironmentVariable('COMSPEC')+' /C '+args+' > outputlog.txt';
-
     // According to MSDN batch files need special treatment:
     // <q http://msdn.microsoft.com/en-us/library/ms682425%28v=vs.85%29.aspx>
     // To run a batch file, you must start the command interpreter; set
@@ -260,7 +258,7 @@ begin
     // executable (although pre-XP versions did not always allow spaces, which
     // were converted to short paths), so we will not call cmd.exe here.
 
-    if not CreateProcess(nil, PChar(args), nil, nil, True, 0, nil, pworkdir, StartInf, ProcInf) then
+    if not CreateProcess(nil, PChar(GetEnvironmentVariable('SystemRoot')+'cmd.exe '+args+' > outputlog.txt'), nil, nil, True, 0, nil, pworkdir, StartInf, ProcInf) then
     begin
       if not bSilent then
         MessageDlg('Unable to run: '#13#10'''' + args + '''', mtError, [mbOk], 0);
@@ -277,7 +275,7 @@ begin
 
         SL := TStringList.Create;
         try
-          SL.LoadFromFile(workdir+'outputlog.txt');
+          SL.LoadFromFile('outputlog.txt');
           output := SL.text;
         finally
           SL.Free;
