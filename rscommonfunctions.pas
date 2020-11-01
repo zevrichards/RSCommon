@@ -50,6 +50,7 @@ procedure SaveState(Components: Array of TComponent; ComponentCount: integer; Sa
 procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
 function FindMatchStr(SL: TStringList; const SubStr: string): Integer;
 function CompareInt(const L, R: integer): integer;
+function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
 
 type
   TAppender<T> = class
@@ -1650,6 +1651,15 @@ begin
       Result:=-1
    else
       Result:=1;
+end;
+
+
+function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
+var x: integer;
+begin
+  result := 0;
+  For x := 1 to SL.Count-1 do
+    If ContainsText(SL.Strings[x], CommentChar) then inc(result) else break
 end;
 
 end.
