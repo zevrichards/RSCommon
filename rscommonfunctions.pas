@@ -1479,7 +1479,6 @@ begin
 
   SL := TStringList.Create;
   try
-    SL.LoadFromFile(SaveFileName);
     SL.Text := '';
     For aSwitch in PersistentSwitches do
       SL.add(aSwitch.name+'='+ BoolToStr(aSwitch.IsOn));

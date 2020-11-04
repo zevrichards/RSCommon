@@ -49,6 +49,8 @@ procedure EndianSwap(ValueIn: Pointer; Size: integer);
 procedure SaveState(Components: Array of TComponent; ComponentCount: integer; SaveFileName: string);
 procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
 function FindMatchStr(SL: TStringList; const SubStr: string): Integer;
+function CompareInt(const L, R: integer): integer;
+function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
 
 type
   TAppender<T> = class
@@ -1489,7 +1491,8 @@ begin
       s := '';
       For item in aCombobox.Items do
       begin
-        s:= s+item+';'
+        If Item<>'' then
+          s:= s+';'+item
       end;
       SL.add(aComboBox.name+'.items='+s);
     end;
@@ -1585,9 +1588,9 @@ begin
         BckEvent :=  aComboBox.Onchange;
         aComboBox.Onchange := nil;
 
-//        i:= SL.IndexOf(aCombobox.Name+'.items');
         i:= FindMatchStr(SL, aCombobox.Name+'.items');
         list := SL.Strings[i].Split(['=',';']);
+        aCombobox.Items.Clear;
         aComboBox.Items.AddStrings(Copy(list,1,length(list)));
 
         aComboBox.ItemIndex := StrToIntDef(SL.text[Pos(aComboBox.Name+'=',SL.Text)+length(aComboBox.Name+'=')], 0);
@@ -1609,14 +1612,18 @@ begin
       end;
 
       For aEdit in PersistentEdits do
-        aEdit.text := ReturnStringBetween(aEdit.Name+'=', sLineBreak, 'RSSCT.fs');
+      begin
+          s := ReturnStringBetweenText(aEdit.Name+'=', sLineBreak, SL.Text);
+          If s <> '' then
+            aEdit.Text := s;
+      end;
 
       For aTrackbar in PersistentTrackbars do
       begin
         BckEvent :=  aTrackbar.OnChange;
         aTrackbar.OnChange := nil;
 
-        aTrackbar.position := StrToIntDef(ReturnStringBetween(aTrackbar.Name+'=', sLineBreak, 'RSSCT.fs'), 0);
+        aTrackbar.position := StrToIntDef(ReturnStringBetweenText(aTrackbar.Name+'=', sLineBreak, SL.Text), 0);
 
         aTrackbar.OnChange := BckEvent;
       end;
@@ -1634,6 +1641,25 @@ begin
     if ContainsStr(SL.Strings[Result], SubStr) then
       exit;
   Result := -1;
+end;
+
+function CompareInt(const L, R: integer): integer;
+begin
+   if L=R then
+      Result:=0
+   else if L<R then
+      Result:=-1
+   else
+      Result:=1;
+end;
+
+
+function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
+var x: integer;
+begin
+  result := 0;
+  For x := 1 to SL.Count-1 do
+    If ContainsText(SL.Strings[x], CommentChar) then inc(result) else break
 end;
 
 end.
