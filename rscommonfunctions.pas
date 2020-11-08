@@ -180,7 +180,7 @@ begin
     If not ContainsText(SODEInstallLocation, 'SimObjectDisplayEngine.exe') then
     begin
       If SODEInstallLocation[length(SODEInstallLocation)] <>'\' then
-        SODEInstallLocation :=  trim(SODEInstallLocation)+'\';
+        SODEInstallLocation :=  {trim}(SODEInstallLocation)+'\';
       SODEInstallLocation:= trim(SODEInstallLocation)+'SimObjectDisplayEngine.exe';
     end;
   end;
@@ -873,35 +873,40 @@ begin
     //create addon.xml if it does not exist
     If not FileExists(AddonXML) then
     begin
-      ForceDirectories(ExtractFilePath(AddonXML));
-      SL := TStringList.Create;
-      try
-        SL.Text :=     '<SimBase.Document Type="AddOnXml" version="4,0" id="add-on">'+
-                  #13#10#9'<AddOn.Name>RS ALT files</AddOn.Name>'+
-                  #13#10#9'<AddOn.Description>Altitude files for RS Airports: DO NOT EDIT OR REMOVE!</AddOn.Description>'+
-                  #13#10#9'<AddOn.Component>'+
-                  #13#10#9#9'<Category>Scenery</Category>'+
-                  #13#10#9#9'<Path>scenery\world</Path>'+
-                  #13#10#9#9'<Name>RS ALT Files</Name>'+
-                  #13#10#9#9'<Layer>3</Layer>'+
-                  #13#10#9'</AddOn.Component>'+
-                  #13#10#9'<AddOn.Name>RS Common Files</AddOn.Name>'+
-                  #13#10#9'<AddOn.Description>Files Common to all Richer Simulations Products. DO NOT EDIT OR REMOVE!</AddOn.Description>'+
-                  #13#10#9'<AddOn.Component>'+
-                  #13#10#9#9'<Category>Effects</Category>'+
-                  #13#10#9#9'<Path>Effects</Path>'+
-                  #13#10#9'</AddOn.Component>'+
-                  #13#10#9'<AddOn.Component>'+
-                  #13#10#9#9'<Category>Texture</Category>'+
-                  #13#10#9#9'<Path>Texture</Path>'+
-                  #13#10#9'<Type>GLOBAL</Type>'+
-                  #13#10#9'</AddOn.Component>'+
-                  #13#10'</SimBase.Document>';
+      if ForceDirectories(ExtractFilePath(AddonXML)) then
+      begin
+        SL := TStringList.Create;
+        try
+          SL.Text :=     '<SimBase.Document Type="AddOnXml" version="4,0" id="add-on">'+
+                    #13#10#9'<AddOn.Name>RS ALT files</AddOn.Name>'+
+                    #13#10#9'<AddOn.Description>Altitude files for RS Airports: DO NOT EDIT OR REMOVE!</AddOn.Description>'+
+                    #13#10#9'<AddOn.Component>'+
+                    #13#10#9#9'<Category>Scenery</Category>'+
+                    #13#10#9#9'<Path>scenery\world</Path>'+
+                    #13#10#9#9'<Name>RS ALT Files</Name>'+
+                    #13#10#9#9'<Layer>3</Layer>'+
+                    #13#10#9'</AddOn.Component>'+
+                    #13#10#9'<AddOn.Name>RS Common Files</AddOn.Name>'+
+                    #13#10#9'<AddOn.Description>Files Common to all Richer Simulations Products. DO NOT EDIT OR REMOVE!</AddOn.Description>'+
+                    #13#10#9'<AddOn.Component>'+
+                    #13#10#9#9'<Category>Effects</Category>'+
+                    #13#10#9#9'<Path>Effects</Path>'+
+                    #13#10#9'</AddOn.Component>'+
+                    #13#10#9'<AddOn.Component>'+
+                    #13#10#9#9'<Category>Texture</Category>'+
+                    #13#10#9#9'<Path>Texture</Path>'+
+                    #13#10#9'<Type>GLOBAL</Type>'+
+                    #13#10#9'</AddOn.Component>'+
+                    #13#10'</SimBase.Document>';
 
-        SL.SavetoFile(AddonXML);
-      finally
-        SL.Free;
-      end;
+          SL.SavetoFile(AddonXML);
+        finally
+          SL.Free;
+        end;
+      end
+      else
+        ShowMessage('Unable to create Add-on.xml directory in'+sLineBreak+ExtractFilePath(AddonXML)+sLineBreak+
+                   'with Error: '+IntToStr(GetLastError));
 
     end;
 

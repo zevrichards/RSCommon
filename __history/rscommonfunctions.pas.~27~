@@ -49,6 +49,8 @@ procedure EndianSwap(ValueIn: Pointer; Size: integer);
 procedure SaveState(Components: Array of TComponent; ComponentCount: integer; SaveFileName: string);
 procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
 function FindMatchStr(SL: TStringList; const SubStr: string): Integer;
+function CompareInt(const L, R: integer): integer;
+function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
 
 type
   TAppender<T> = class
@@ -871,35 +873,40 @@ begin
     //create addon.xml if it does not exist
     If not FileExists(AddonXML) then
     begin
-      ForceDirectories(ExtractFilePath(AddonXML));
-      SL := TStringList.Create;
-      try
-        SL.Text :=     '<SimBase.Document Type="AddOnXml" version="4,0" id="add-on">'+
-                  #13#10#9'<AddOn.Name>RS ALT files</AddOn.Name>'+
-                  #13#10#9'<AddOn.Description>Altitude files for RS Airports: DO NOT EDIT OR REMOVE!</AddOn.Description>'+
-                  #13#10#9'<AddOn.Component>'+
-                  #13#10#9#9'<Category>Scenery</Category>'+
-                  #13#10#9#9'<Path>scenery\world</Path>'+
-                  #13#10#9#9'<Name>RS ALT Files</Name>'+
-                  #13#10#9#9'<Layer>3</Layer>'+
-                  #13#10#9'</AddOn.Component>'+
-                  #13#10#9'<AddOn.Name>RS Common Files</AddOn.Name>'+
-                  #13#10#9'<AddOn.Description>Files Common to all Richer Simulations Products. DO NOT EDIT OR REMOVE!</AddOn.Description>'+
-                  #13#10#9'<AddOn.Component>'+
-                  #13#10#9#9'<Category>Effects</Category>'+
-                  #13#10#9#9'<Path>Effects</Path>'+
-                  #13#10#9'</AddOn.Component>'+
-                  #13#10#9'<AddOn.Component>'+
-                  #13#10#9#9'<Category>Texture</Category>'+
-                  #13#10#9#9'<Path>Texture</Path>'+
-                  #13#10#9'<Type>GLOBAL</Type>'+
-                  #13#10#9'</AddOn.Component>'+
-                  #13#10'</SimBase.Document>';
+      if ForceDirectories(ExtractFilePath(AddonXML)) then
+      begin
+        SL := TStringList.Create;
+        try
+          SL.Text :=     '<SimBase.Document Type="AddOnXml" version="4,0" id="add-on">'+
+                    #13#10#9'<AddOn.Name>RS ALT files</AddOn.Name>'+
+                    #13#10#9'<AddOn.Description>Altitude files for RS Airports: DO NOT EDIT OR REMOVE!</AddOn.Description>'+
+                    #13#10#9'<AddOn.Component>'+
+                    #13#10#9#9'<Category>Scenery</Category>'+
+                    #13#10#9#9'<Path>scenery\world</Path>'+
+                    #13#10#9#9'<Name>RS ALT Files</Name>'+
+                    #13#10#9#9'<Layer>3</Layer>'+
+                    #13#10#9'</AddOn.Component>'+
+                    #13#10#9'<AddOn.Name>RS Common Files</AddOn.Name>'+
+                    #13#10#9'<AddOn.Description>Files Common to all Richer Simulations Products. DO NOT EDIT OR REMOVE!</AddOn.Description>'+
+                    #13#10#9'<AddOn.Component>'+
+                    #13#10#9#9'<Category>Effects</Category>'+
+                    #13#10#9#9'<Path>Effects</Path>'+
+                    #13#10#9'</AddOn.Component>'+
+                    #13#10#9'<AddOn.Component>'+
+                    #13#10#9#9'<Category>Texture</Category>'+
+                    #13#10#9#9'<Path>Texture</Path>'+
+                    #13#10#9'<Type>GLOBAL</Type>'+
+                    #13#10#9'</AddOn.Component>'+
+                    #13#10'</SimBase.Document>';
 
-        SL.SavetoFile(AddonXML);
-      finally
-        SL.Free;
-      end;
+          SL.SavetoFile(AddonXML);
+        finally
+          SL.Free;
+        end;
+      end
+      else
+        ShowMessage('Unable to create Add-on.xml directory in'+sLineBreak+ExtractFilePath(AddonXML)+sLineBreak+
+                   'with Error: '+IntToStr(GetLastError));
 
     end;
 
@@ -1477,7 +1484,6 @@ begin
 
   SL := TStringList.Create;
   try
-    SL.LoadFromFile(SaveFileName);
     SL.Text := '';
     For aSwitch in PersistentSwitches do
       SL.add(aSwitch.name+'='+ BoolToStr(aSwitch.IsOn));
@@ -1489,7 +1495,8 @@ begin
       s := '';
       For item in aCombobox.Items do
       begin
-        s:= s+item+';'
+        If Item<>'' then
+          s:= s+';'+item
       end;
       SL.add(aComboBox.name+'.items='+s);
     end;
@@ -1585,9 +1592,9 @@ begin
         BckEvent :=  aComboBox.Onchange;
         aComboBox.Onchange := nil;
 
-//        i:= SL.IndexOf(aCombobox.Name+'.items');
         i:= FindMatchStr(SL, aCombobox.Name+'.items');
         list := SL.Strings[i].Split(['=',';']);
+        aCombobox.Items.Clear;
         aComboBox.Items.AddStrings(Copy(list,1,length(list)));
 
         aComboBox.ItemIndex := StrToIntDef(SL.text[Pos(aComboBox.Name+'=',SL.Text)+length(aComboBox.Name+'=')], 0);
@@ -1609,14 +1616,18 @@ begin
       end;
 
       For aEdit in PersistentEdits do
-        aEdit.text := ReturnStringBetweenText(aEdit.Name+'=', sLineBreak, 'RSSCT.fs');
+      begin
+          s := ReturnStringBetweenText(aEdit.Name+'=', sLineBreak, SL.Text);
+          If s <> '' then
+            aEdit.Text := s;
+      end;
 
       For aTrackbar in PersistentTrackbars do
       begin
         BckEvent :=  aTrackbar.OnChange;
         aTrackbar.OnChange := nil;
 
-        aTrackbar.position := StrToIntDef(ReturnStringBetween(aTrackbar.Name+'=', sLineBreak, 'RSSCT.fs'), 0);
+        aTrackbar.position := StrToIntDef(ReturnStringBetweenText(aTrackbar.Name+'=', sLineBreak, SL.Text), 0);
 
         aTrackbar.OnChange := BckEvent;
       end;
@@ -1634,6 +1645,25 @@ begin
     if ContainsStr(SL.Strings[Result], SubStr) then
       exit;
   Result := -1;
+end;
+
+function CompareInt(const L, R: integer): integer;
+begin
+   if L=R then
+      Result:=0
+   else if L<R then
+      Result:=-1
+   else
+      Result:=1;
+end;
+
+
+function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
+var x: integer;
+begin
+  result := 0;
+  For x := 1 to SL.Count-1 do
+    If ContainsText(SL.Strings[x], CommentChar) then inc(result) else break
 end;
 
 end.
