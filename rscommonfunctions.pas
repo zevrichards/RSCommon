@@ -51,6 +51,7 @@ procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Lo
 function FindMatchStr(SL: TStringList; const SubStr: string): Integer;
 function CompareInt(const L, R: integer): integer;
 function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
+function IsDirectoryWriteable(const AName: string): Boolean;
 
 type
   TAppender<T> = class
@@ -463,7 +464,8 @@ begin
         slFile.LoadFromFile(log);
         slFile.Text := slFile.Text+ GetAppVersionStr(ParamStr(0)) + ' ' + DateTimeToStr(Now)+': '+status+sLineBreak;
       end;
-      slFile.SaveToFile(log);
+      If IsDirectoryWriteable(log) then
+        slFile.SaveToFile(log);
     finally
       slFile.Free;
     end;
@@ -873,8 +875,6 @@ begin
     //create addon.xml if it does not exist
     If not FileExists(AddonXML) then
     begin
-      if ForceDirectories(ExtractFilePath(AddonXML)) then
-      begin
         SL := TStringList.Create;
         try
           SL.Text :=     '<SimBase.Document Type="AddOnXml" version="4,0" id="add-on">'+
@@ -898,15 +898,23 @@ begin
                     #13#10#9'<Type>GLOBAL</Type>'+
                     #13#10#9'</AddOn.Component>'+
                     #13#10'</SimBase.Document>';
-
-          SL.SavetoFile(AddonXML);
+          if not ForceDirectories(ExtractFilePath(AddonXML)) then
+            MessageDlg('Could not create directory '+ExtractFilePath(AddonXML)+' for Add-on.xml'+sLineBreak+
+                   'with Error: '+IntToStr(GetLastError), mtError, mbOKCancel, 0, mbOK)
+          else
+          begin
+            if isDirectoryWriteable(ExtractFilePath(AddonXML)) then
+              SL.SavetoFile(AddonXML)
+            else
+              MessageDlg('Unable to write to '+ExtractFilePath(AddonXML)+' for Add-on.xml'+sLineBreak+
+                   'with Error: '+IntToStr(GetLastError), mtError, mbOKCancel, 0, mbOK)
+          end;
         finally
           SL.Free;
         end;
-      end
-      else
-        ShowMessage('Unable to create Add-on.xml directory in'+sLineBreak+ExtractFilePath(AddonXML)+sLineBreak+
-                   'with Error: '+IntToStr(GetLastError));
+//      else
+//        ShowMessage('Unable to create Add-on.xml directory in'+sLineBreak+ExtractFilePath(AddonXML)+sLineBreak+
+//                   'with Error: '+IntToStr(GetLastError));
 
     end;
 
@@ -1143,7 +1151,12 @@ begin
       end;
 
 
-      SL.SaveToFile(SceneryCFG);
+      try
+        SL.SaveToFile(SceneryCFG);
+      except
+        MessageDlg('Unable to write to '+SceneryCFG+'.'+sLineBreak+
+                   'with Error: '+IntToStr(GetLastError), mtError, mbOKCancel, 0, mbOK)
+      end;
     end;
 
   finally
@@ -1199,25 +1212,6 @@ begin
     TDirectory.Copy(RicherSimsLocation+'Scenery', simpath+'Scenery');
 
 end;
-
-//function LoadImageResource(NativeInstance: NativeUInt; ImageResource: string): TWICImage;
-//var
-//  //Img: TWICImage;
-//  Strm: TResourceStream;
-//  WICImage: TWICImage;
-//begin
-//  Strm := TResourceStream.Create(NativeInstance, ImageResource, RT_RCDATA);
-//  If FindResource(NativeInstance, ImageResource, RT_RCDATA)
-//  WICImage := TWICImage.Create;
-//  try
-//    Strm.Position := 0;
-//    WICImage.LoadFromStream(Strm);
-//    result :=  WICImage;
-//  finally
-//    Strm.Free;
-//    WICImage.Free;
-//  end;
-//end;
 
 function BoolToInt( aValue : Boolean) : Integer;
 begin
@@ -1593,11 +1587,15 @@ begin
         aComboBox.Onchange := nil;
 
         i:= FindMatchStr(SL, aCombobox.Name+'.items');
-        list := SL.Strings[i].Split(['=',';']);
-        aCombobox.Items.Clear;
-        aComboBox.Items.AddStrings(Copy(list,1,length(list)));
+        If i <> -1 then
+          list := SL.Strings[i].Split(['=',';']);
 
-        aComboBox.ItemIndex := StrToIntDef(SL.text[Pos(aComboBox.Name+'=',SL.Text)+length(aComboBox.Name+'=')], 0);
+        If length(list)>2 then
+        begin
+          aCombobox.Items.Clear;
+          aComboBox.Items.AddStrings(Copy(list,2,length(list))); //copy the list excluding the combobox name
+          aComboBox.ItemIndex := StrToIntDef(SL.text[Pos(aComboBox.Name+'=',SL.Text)+length(aComboBox.Name+'=')], 0);    //find the value after the combobox name, default to 0 if nothing is found
+        end;
 
         aComboBox.OnChange := BckEvent;
       end;
@@ -1664,6 +1662,19 @@ begin
   result := 0;
   For x := 1 to SL.Count-1 do
     If ContainsText(SL.Strings[x], CommentChar) then inc(result) else break
+end;
+
+//https://stackoverflow.com/questions/3599256/how-can-i-use-delphi-to-test-if-a-directory-is-writeable
+function IsDirectoryWriteable(const AName: string): Boolean;
+var
+  FileName: String;
+  H: THandle;
+begin
+  FileName := IncludeTrailingPathDelimiter(AName) + 'chk.tmp';
+  H := CreateFile(PChar(FileName), GENERIC_READ or GENERIC_WRITE, 0, nil,
+    CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY or FILE_FLAG_DELETE_ON_CLOSE, 0);
+  Result := H <> INVALID_HANDLE_VALUE;
+  if Result then CloseHandle(H);
 end;
 
 end.
