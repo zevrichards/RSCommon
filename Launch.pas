@@ -104,7 +104,8 @@ interface
 uses
   Windows,
   //added
-  Classes;
+  Classes,
+  ShellAPI;
 
 type
   TStringDynArray = array of string;
@@ -409,9 +410,16 @@ begin
 
     if not CreateProcess(nil, PChar(args), nil, nil, True, 0, nil, pworkdir, StartInf, ProcInf) then
     begin
-      if not bSilent then
-        MessageDlg('Unable to run: '#13#10'''' + args + '''', mtError, [mbOk], 0);
-      result := 0; // ProcInf.hProcess turns out to be 0 when CreateProcess() fails
+      //createprocess is failing when trying to run files which are not strictly executables
+      //quick dirty fix:
+      //try ShellExecute instead before throwing an error
+      try
+        ShellExecute(0, 'open', PChar(args), nil, nil, SW_SHOWNORMAL)
+      except
+        if not bSilent then
+          MessageDlg('Unable to run: '#13#10'''' + args + '''', mtError, [mbOk], 0);
+        result := 0; // ProcInf.hProcess turns out to be 0 when CreateProcess() fails
+      end;
     end
     else
     begin

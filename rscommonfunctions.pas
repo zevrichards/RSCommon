@@ -5,7 +5,8 @@ interface
 uses
   Windows, Classes, Dialogs, ShellApi, Registry, SysUtils, StrUtils, Launch, Forms, StdCtrls, Controls, ShlObj, DateUtils,
   System.IOUtils, System.Generics.Collections, Vcl.Graphics, Vcl.ExtCtrls, Vcl.WinXCtrls, Vcl.ComCtrls,
-  system.Math, system.UITypes;
+  system.Math, system.UITypes,
+  ActiveX, ComObj;
 
 function CheckforAgnMrgrInstall(SimVersion, AddonXML, LWCFGPath: string; out AGNMrgrInstallLocation: string): Int64;
 function CheckforSODEInstall(SimVersion, LWCFGPath: string): Int64;
@@ -50,30 +51,65 @@ procedure SaveState(Components: Array of TComponent; ComponentCount: integer; Sa
 procedure LoadState(Components: Array of TComponent; ComponentCount: integer; Loadfilename: string);
 function FindMatchStr(SL: TStringList; const SubStr: string): Integer;
 function CompareInt(const L, R: integer): integer;
+function CompareUInt64(const i, j: Int64): Integer;
 function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
 function IsDirectoryWriteable(const AName: string): Boolean;
+function SurroundingQuotes(s: string): char;
+function ReplaceBackSlash(s: string): string;
+function StrInArray(const Value : String;const ArrayOfString : Array of String) : Boolean;
+function ReturnTagsAsString(const SL: TStringList; const x: integer): string;
+function CopyFileIFileOperationForceDirectories(const srcFile, destFile : string) : boolean;
+function CountLines(const FileName: string): Int64;
+
+type
+  TFileSystemBindData = class (TInterfacedObject, IFileSystemBindData)
+    fw32fd: TWin32FindData;
+
+    function SetFindData(var w32fd: TWin32FindData): HRESULT; stdcall;
+    function GetFindData(var w32fd: TWin32FindData): HRESULT; stdcall;
+  end;
 
 type
   TAppender<T> = class
     class procedure Append(var Arr: TArray<T>; Value: T);
   end;
 
-const RSproducts: array [0..7] of string = ('RS Grenada 2020',
-                                  'RS St Kitts 2017',
-                                  'RS Barbados 2017',
-                                  'RS Antigua 2018',
-                                  'RS St Vincent 2019',
-                                  'RS Dominica 2019',
-                                  'RS Common',
-                                  'RS TBPB 2020');
+const
 
-      RSXPProducts: array [0..3] of string =
-        ('RS_Common',
-       'RS_TBPB_2020',
-       'RS_Barbados_2017',
-       'RS_St_Vincent_2019');
+  supportedsims: array [0..9] of string =
+    ('p3dv6',
+    'p3dv5',
+    'p3dv4',
+    'p3dv3',
+    'p3dv2',
+    'p3d',
+    'fsxse',
+    'fsx',
+    'xp11',
+    'xp12');
 
-   simkeys64: array [0..7] of string =
+   RSProducts: array [0..9] of string =
+   ('RS Grenada 2020',
+   'RS St Kitts 2017',
+   'RS Barbados 2017',
+   'RS Antigua 2018',
+   'RS St Vincent 2019',
+   'RS Dominica 2023',
+   'RS Common',
+   'RS TBPB 2020',
+   'RWY26 MWCL',
+   'SkyLane Designs SOGS');
+
+   RSXPProducts: array [0..6] of string =
+   ('RS_Common',
+   'RS_TBPB_2020',
+   'RS_Barbados_2017',
+   'RS_St_Vincent_2019',
+   'RS_Dominica_2023',
+   'RWY26_MWCL',
+   'SLD_SOGS');
+
+   simkeys64: array [0..9] of string =
    ('SOFTWARE\Lockheed Martin\Prepar3D v4',
     'SOFTWARE\Lockheed Martin\Prepar3D v3',
     'SOFTWARE\Lockheed Martin\Prepar3D v2',
@@ -81,9 +117,11 @@ const RSproducts: array [0..7] of string = ('RS Grenada 2020',
     'SOFTWARE\DovetailGames\FSX',
     'SOFTWARE\Microsoft\Microsoft Games\Flight Simulator\10.0',
     '\x-plane_install_11.txt',
-    'SOFTWARE\Lockheed Martin\Prepar3D v5');
+    'SOFTWARE\Lockheed Martin\Prepar3D v5',
+    'SOFTWARE\Lockheed Martin\Prepar3D v6',
+    '\x-plane_install_12.txt');
 
-   simkeys32: array [0..7] of string =
+   simkeys32: array [0..9] of string =
    ('SOFTWARE\Lockheed Martin\Prepar3D v4',
     'SOFTWARE\Wow6432Node\Lockheed Martin\Prepar3D v3',
     'SOFTWARE\Wow6432Node\Lockheed Martin\Prepar3D v2',
@@ -91,7 +129,9 @@ const RSproducts: array [0..7] of string = ('RS Grenada 2020',
     'SOFTWARE\Wow6432Node\DovetailGames\FSX',
     'SOFTWARE\Wow6432Node\Microsoft\Microsoft Games\Flight Simulator\10.0',
     '\x-plane_install_11.txt',
-    'SOFTWARE\Wow6432Node\Lockheed Martin\Prepar3D v5');
+    'SOFTWARE\Wow6432Node\Lockheed Martin\Prepar3D v5',
+    'SOFTWARE\Wow6432Node\Lockheed Martin\Prepar3D v6',
+    '\x-plane_install_12.txt');
 
 implementation
 
@@ -514,7 +554,7 @@ var x: integer;
 begin
 
   //scan for installed sims
-  For x:= 0 to 7 do
+  For x:= 0 to length(simkeys64)-1 do
   begin
     myReg := TRegistry.Create(KEY_READ OR KEY_WOW64_64KEY);
     try
@@ -536,10 +576,15 @@ begin
       myReg.Free;
     end;
   end;
-  If FileExists(GetEnvironmentVariable('LOCALAPPDATA')+'\x-plane_install_11.txt') then
+  If FileExists(GetSpecialFolder(CSIDL_LOCAL_APPDATA)+'\x-plane_install_11.txt') then
   begin
     setlength(result, length(result)+1);
-    result[length(result)-1] := 6;
+    result[length(result)-1] := 6;          //6 = value used for xp11
+  end;
+  If FileExists(GetSpecialFolder(CSIDL_LOCAL_APPDATA)+'\x-plane_install_12.txt') then
+  begin
+    setlength(result, length(result)+1);
+    result[length(result)-1] := 9;          //9 = value used for xp12
   end;
 
 end;
@@ -548,20 +593,26 @@ function GetSimPath(simkey64,simkey32: string): string;
 var myReg : TRegistry;
     SL: TStringList;
     aFileOpenDialog : TFileOpenDialog;
+    s: string;
 
 begin
   result := '';
-  If ContainsText(simkey64, 'x-plane_install_11.txt') then
+  If ContainsText(simkey64, 'x-plane_install') then
   begin
+    If ContainsText(simkey64, '11') then
+      s := '11'
+    else
+      s:= '12';
+
 
     SL := TStringList.Create;
     try
-      SL.LoadFromFile(GetEnvironmentVariable('LOCALAPPDATA')+'\x-plane_install_11.txt');
+      SL.LoadFromFile(GetSpecialFolder(CSIDL_LOCAL_APPDATA)+'\x-plane_install_'+s+'.txt');
       If SL.Count = 1 then
         result := trim(SL.Strings[0])
       else
       begin
-        MessageDlg('Multiple X-Plane 11 installations detected. Please select the correct folder.', mtError, [mbOk], 0);
+        MessageDlg('Multiple X-Plane '+s+' installations detected. Please select the correct folder.', mtError, [mbOk], 0);
         aFileOpenDialog := TFileOpenDialog.Create(nil);
         aFileOpenDialog.Options := [fdoPickFolders];
         If aFileOpenDialog.Execute() then
@@ -617,7 +668,7 @@ begin
   result:='';
   SL := TStringList.Create;
 
-  If sim = 'xp11' then
+  If ContainsText(sim, 'xp') then
   begin
 
     try
@@ -719,13 +770,14 @@ begin
 end;
 
 function DetectInstalledProducts(SimPath, AddonXML, sceneryCFGPath, sim: string; UseP3DAutogenSystem: boolean): TArray<Integer>;
-var x, i: integer;
+var x, y, i: integer;
   SL: TStringList;
   v, s: string;
   nearbyproducts: TArray<integer>;
   RSCommonInstallLocation: string;
   simindex: integer;
   aFileOpenDialog: TFileOpenDialog;
+  FoundTextureComponent: boolean;
 
 begin
 
@@ -736,7 +788,7 @@ begin
       s:= GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v'+v+' Add-ons\'
     else
     begin
-      If DirectoryExists(GetSpecialFolder(CSIDL_PERSONAL)+'Prepar3D v'+v+' Add-ons\') then
+      If DirectoryExists(GetSpecialFolder(CSIDL_PROFILE)+'Prepar3D v'+v+' Add-ons\') then
         s:= GetSpecialFolder(CSIDL_PROFILE)+'Documents\Prepar3D v'+v+' Add-ons\'
       else
       begin
@@ -753,10 +805,10 @@ begin
 
   AddonXML := s+'Richer Simulations\Add-on.xml';
 
-  SimIndex := IndexStr(sim, ['p3dv4','p3dv3','p3dv2','p3d','fsxse','fsx', 'xp11', 'p3dv5']);
+  SimIndex := IndexStr(sim, ['p3dv4','p3dv3','p3dv2','p3d','fsxse','fsx', 'xp11', 'p3dv5', 'p3dv6', 'xp12']);
 
-  //if sim is XP11
-  If sim = 'xp11' then
+  //if sim is XP11/12
+  If ContainsText(sim, 'xp') then
   begin
 
     //search the scenery_packs.ini for products
@@ -853,7 +905,7 @@ begin
       end;
     end;
 
-    //if the sim is not p34 then notify the user to add discovered products to the scenery library.
+    //if the sim is not p3d then notify the user to add discovered products to the scenery library.
     If isLegacySim(sim) and (length(nearbyproducts)>0) then
     begin
       s := '';
@@ -933,7 +985,7 @@ begin
              '</AddOn.Name>'#13#10#9'<AddOn.Description>'+RSproducts[nearbyproducts[x]]+
              '</AddOn.Description>'#13#10#9'<AddOn.Component>'#13#10#9#9'<Category>Scenery</Category>'#13#10#9#9'<Path>'+RicherSimsLocation+RSproducts[nearbyproducts[x]]+
              '</Path>'#13#10#9#9'<Name>'+RSproducts[nearbyproducts[x]]+
-             '</Name>'#13#10#9#9'<Required>False</Required>'#13#10#9'</AddOn.Component>');
+             '</Name>'#13#10#9#9'<Required>True</Required>'#13#10#9'</AddOn.Component>');
         {end;}
       end;
 
@@ -966,6 +1018,45 @@ begin
       SL.SaveToFile(AddonXML);
 
       RSCommonInstallLocation := FindInstallLocation('RS Common', sceneryCFGpath, simpath, sim);
+
+      //add texture AddOn Component
+      For x:= 1 to SL.Count-1 do
+      begin
+        If SL.Strings[x].Contains('<AddOn.Name>RS Common</AddOn.Name>') then
+        begin
+
+          y := x+1;
+          FoundTextureComponent := false;
+          while not SL.Strings[y].Contains('AddOn.Name>') do
+          begin
+
+          //search for an addon compoenent which has a texture <type>Global<type> in the following line.
+            If (((SL.Strings[y].Contains('RS Common</Path>') or SL.Strings[y].Contains('RS Common\Texture</Path>'))) and SL.Strings[y+1].Contains('<Type>GLOBAL</Type>')) then
+            begin
+              FoundTextureComponent := true;
+              break;
+            end;
+
+            inc(y);
+
+          end;
+
+          //if we didnt find the texture component, add it.
+          If not FoundTextureComponent then
+          begin
+            //insert it above next AddOn Name which we should have found at line y when the search was completed.
+            SL.Insert(y,
+              #9'<AddOn.Component>'#13#10+
+              #9#9'<Category>Texture</Category>'#13#10+
+              #9#9'<Path>'+RSCommonInstallLocation+'Texture</Path>'#13#10+
+              #9#9'<Type>GLOBAL</Type>'#13#10+
+              #9'</AddOn.Component>');
+          break;
+          end;
+
+        end;
+      end;
+
 
       //add autogen component if it does not exist
       If UseP3DAutogenSystem then
@@ -1063,7 +1154,7 @@ var P3Dversion: real;
 const NativeMergeSupport: real = 4.4;
 begin
 
-  If sim <> 'p3dv4' then
+  If ContainsText(sim, 'fsx') then
     result := true
   else
   begin
@@ -1400,7 +1491,7 @@ end;
 
 function isLegacySim(sim: string): boolean;
 begin
-  If ((sim = 'p3dv4') or (sim = 'p3dv5')) then
+  If ((sim = 'p3dv4') or (sim = 'p3dv5') or (sim = 'p3dv6')) then
     result := false
   else
     result := true;
@@ -1655,6 +1746,20 @@ begin
       Result:=1;
 end;
 
+function CompareUInt64(const i, j: Int64): Integer;
+begin
+  if Int64Rec(i).Hi < Int64Rec(j).Hi then
+    Result := -1
+  else if Int64Rec(i).Hi > Int64Rec(j).Hi then
+    Result := 1
+  else if Int64Rec(i).Lo < Int64Rec(j).Lo then
+    Result := -1
+  else if Int64Rec(i).Lo > Int64Rec(j).Lo then
+    Result := 1
+  else
+    Result := 0;
+end;
+
 
 function GetHeaderCommentSize(SL: TStringList; CommentChar: string):integer;
 var x: integer;
@@ -1676,6 +1781,155 @@ begin
   Result := H <> INVALID_HANDLE_VALUE;
   if Result then CloseHandle(H);
 end;
+
+function SurroundingQuotes(s: string): char;
+begin
+  If ContainsText(s, '"') then
+    result := '"'
+  else
+    result := '''';
+end;
+
+function ReplaceBackSlash(s: string): string;
+begin
+  If ContainsText(s, '\') then
+    result := ReplaceStr(s, '\', '/')
+  else
+    result := s;
+end;
+
+//https://stackoverflow.com/questions/6320003/how-do-i-check-whether-a-string-exists-in-an-array
+function StrInArray(const Value : String; const ArrayOfString : Array of String) : Boolean;
+var s : String;
+
+begin
+  for s in ArrayOfString do
+  begin
+    if ContainsStr(value, s) then
+      Exit(true);
+  end;
+  result := false;
+end;
+
+function ReturnTagsAsString(const SL: TStringList; const x: integer): string; //converts multiple lines of an XML StringList into 1 searchable string when it finds the closing /> tag
+var y,z: integer;
+begin
+  for y := x to SL.Count-1 do  //find the end of the TaxiWayPoint tag/>. might be same line, might be several lines down.
+    begin
+      If ContainsText(SL.Strings[y], '/>') then
+        break;
+    end;
+
+    //Compile entire tag for searching
+    result := '';
+    For z := x to y do
+    begin
+      result := result+' '+SL.Strings[z]
+    end;
+end;
+
+ function TFileSystemBindData.GetFindData(var w32fd: TWin32FindData): HRESULT;
+begin
+  w32fd:= fw32fd;
+  Result := S_OK;
+end;
+
+function TFileSystemBindData.SetFindData(var w32fd: TWin32FindData): HRESULT;
+begin
+  fw32fd := w32fd;
+  Result := S_OK;
+end;
+
+function CopyFileIFileOperationForceDirectories(const srcFile, destFile : string) : boolean;
+//works on Windows >= Vista and 2008 server
+var
+  r : HRESULT;
+  fileOp: IFileOperation;
+  siSrcFile: IShellItem;
+  siDestFolder: IShellItem;
+  destFileFolder, destFileName : string;
+  pbc : IBindCtx;
+  w32fd : TWin32FindData;
+  ifs : TFileSystemBindData;
+begin
+  result := false;
+
+  destFileFolder := ExtractFileDir(destFile);
+  destFileName := ExtractFileName(destFile);
+
+  //init com
+  r := CoInitializeEx(nil, COINIT_APARTMENTTHREADED or COINIT_DISABLE_OLE1DDE);
+  if Succeeded(r) then
+  begin
+    //create IFileOperation interface
+    r := CoCreateInstance(CLSID_FileOperation, nil, CLSCTX_ALL, IFileOperation, fileOp);
+    if Succeeded(r) then
+    begin
+      //set operations flags
+      r := fileOp.SetOperationFlags(FOF_NOCONFIRMATION OR FOFX_NOMINIMIZEBOX);
+      if Succeeded(r) then
+      begin
+        //get source shell item
+        r := SHCreateItemFromParsingName(PChar(srcFile), nil, IShellItem, siSrcFile);
+        if Succeeded(r) then
+        begin
+          //create binding context to pretend there is a folder there
+          if NOT DirectoryExists(destFileFolder) then
+          begin
+            ZeroMemory(@w32fd, Sizeof(TWin32FindData));
+            w32fd.dwFileAttributes := FILE_ATTRIBUTE_DIRECTORY;
+            ifs := TFileSystemBindData.Create;
+            ifs.SetFindData(w32fd);
+            r := CreateBindCtx(0, pbc);
+            r := pbc.RegisterObjectParam(STR_FILE_SYS_BIND_DATA, ifs);
+          end
+          else
+            pbc := nil;
+
+          //get destination folder shell item
+          r := SHCreateItemFromParsingName(PChar(destFileFolder), pbc, IShellItem, siDestFolder);
+
+          //add copy operation
+          if Succeeded(r) then r := fileOp.CopyItem(siSrcFile, siDestFolder, PChar(destFileName), nil);
+        end;
+
+        //execute
+        if Succeeded(r) then r := fileOp.PerformOperations;
+
+        result := Succeeded(r);
+
+        OleCheck(r);
+      end;
+    end;
+
+    CoUninitialize;
+  end;
+end;
+
+function CountLines(const FileName: string): Int64;
+var
+  FS: TFileStream;
+  Buffer: array[0..65535] of Byte; // 64 KB buffer
+  BytesRead, I: Integer;
+begin
+  Result := 0;
+  FS := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  try
+    repeat
+      BytesRead := FS.Read(Buffer, SizeOf(Buffer));
+      for I := 0 to BytesRead - 1 do
+        if Buffer[I] = 10 { LF } then
+          Inc(Result);
+    until BytesRead = 0;
+
+    // if file does not end with newline, add 1 more line
+    if (Result > 0) and (Buffer[BytesRead - 1] <> 10) then
+      Inc(Result);
+  finally
+    FS.Free;
+  end;
+end;
+
 
 end.
 
